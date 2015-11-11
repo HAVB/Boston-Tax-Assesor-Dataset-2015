@@ -1,0 +1,114 @@
+---
+title: "Creating new variables"
+author: "Hector Antonio Vazquez Brust"
+date: "October 9, 2015"
+output: html_document
+---
+
+##Boston neighborhoods: A more nuanced view on assessed value
+
+
+This time we'll create some new variables to fix problems with our dataset, and also to facilitate a deeper analysis.
+
+
+```{r, echo=FALSE}
+options(scipen = 99) # this prevents R from displaying large numbers with scientific notation
+
+library(ggplot2)
+library(plyr)
+
+TAdata <- read.csv('data/Tax Assessor 2015 - Data.csv') #load the Tax Assesor dataset
+
+```
+
+
+
+As we've seen before, our dataset holds many properties whose year of construction is listed as zero:
+
+```{r, warning=FALSE}
+ggplot(TAdata, aes(x = YR_BUILT)) + geom_histogram(binwidth = 10) + ggtitle("Boston: building construction dates") + labs(x="Year",y="Count")
+
+```
+
+
+We will fix that by creating a "revised" variable, which will hold a "NA" where the YR_BUILT column lists a "0", and otherwise it will reflect the construction year: 
+
+```{r}
+TAdata <- transform(TAdata, YR_BUILT_REVISED = ifelse(YR_BUILT == 0, NA, YR_BUILT))
+```
+
+Let's check how it looks now:
+
+```{r, warning=FALSE}
+ggplot(TAdata, aes(x = YR_BUILT_REVISED)) + geom_histogram(binwidth = 10) + ggtitle("Boston: building construction dates") + labs(x="Year",y="Count")
+
+
+```
+
+Good; the "0" dates are gone. The plot has the x axis starting at 1700 -could it be that a few extant buildings from that time are being represented? Yes, that's the case:
+
+```{r}
+head(arrange(TAdata[c('ST_NUM', 'ST_NAME', 'ST_NAME_SUF', 'ZIPCODE', 'YR_BUILT_REVISED')], YR_BUILT_REVISED))
+
+```
+(it must be mentioned that I took a look at a few of those buildings in Google Street View, and they do not look that old at all... maybe we'll investigate further in the future)
+
+
+
+Next, we will create two additional values, that will help us provide a more nuanced analysis of assessed land and building values in Boston, by giving us values normalized by total land area or gross area.
+
+"AV_LAND_PER_SF" will tell us the assessed value per square foot of a parcel lot:
+
+```{r}
+TAdata <- transform(TAdata, AV_LAND_PER_SF = ifelse((AV_LAND != 0 & LAND_SF != 0), AV_LAND / LAND_SF, NA))
+
+
+```
+
+And "AV_BLDG_PER_SF" will give us the assessed value per square foot of a building:
+
+```{r}
+TAdata <- transform(TAdata, AV_BLDG_PER_SF = ifelse((AV_BLDG != 0 & GROSS_AREA != 0), AV_BLDG / GROSS_AREA, NA))
+```
+
+
+How can we use these new variables? 
+
+Well, if we compare the total amount of assessed value per neighborhood, we find the downtown area on top, and Hyde Park at the bottom:
+
+```{r}
+BRA_PD.value <- ddply(TAdata[(!is.na(TAdata$BRA_PD) & !is.na(TAdata$AV_BLDG)), ], .(BRA_PD), summarise, bldg.value = sum(as.numeric(AV_BLDG)/1000000000), land.value = sum(as.numeric(AV_LAND)/1000000000))
+
+arrange(BRA_PD.value, desc(bldg.value + land.value))
+```
+(figures expressed in billions of USD)
+
+
+But if we take a look at the density function for property value by square meter, a different picture emerges:
+
+```{r, warning=FALSE}
+ggplot(TAdata[TAdata$BRA_PD != '' & TAdata$AV_BLDG_PER_SF > 1,], aes(AV_BLDG_PER_SF, fill = BRA_PD)) + geom_density(alpha = 0.3)  + xlim(1,1200) + scale_fill_brewer(name="Neighborhood", palette="Paired") + guides(fill=guide_legend(ncol=4)) + theme(legend.title=element_blank(), legend.direction ="vertical",legend.position = "bottom") + ggtitle("Boston: building assessed value by neighborhood") + labs(x="Neighborhood",y="Building value per sqf")
+
+```
+
+Back Bay/Beacon Hill is the area where the building value tends to be higher, as normalized by area; it's hard to tell which neighborhoods come last, since the density curves are superimposing. A box plot may be easier to read:
+
+```{r, warning=FALSE}
+ggplot(TAdata[TAdata$BRA_PD != '' & TAdata$AV_BLDG_PER_SF > 1,], aes(x = BRA_PD, y = AV_BLDG_PER_SF, fill = BRA_PD)) + geom_boxplot() + scale_y_log10() + guides(fill=guide_legend(ncol=4)) + theme(legend.title=element_blank(), axis.ticks.x = element_blank(), axis.text.x = element_blank(), legend.direction ="vertical",legend.position = "bottom") + ggtitle("Boston: building assessed value by neighborhood") + labs(x="Neighborhood",y="Building value per sqf")
+```
+
+That helps (slightly). At least we can tell that Mattapan and Roxbury come last.
+
+
+And what about land value?
+
+```{r, warning=FALSE}
+
+ggplot(TAdata[TAdata$BRA_PD != '' & TAdata$AV_LAND_PER_SF > 1,], aes(x = BRA_PD, y = AV_LAND_PER_SF, fill = BRA_PD)) + geom_boxplot() + scale_y_log10() + guides(fill=guide_legend(ncol=4)) + theme(legend.title=element_blank(), axis.ticks.x = element_blank(), axis.text.x = element_blank(), legend.direction ="vertical",legend.position = "bottom") + ggtitle("Boston: land assessed value by neighborhood") + labs(x="Neighborhood",y="Land value per sqf")
+```
+
+Again, Back Bay/Beacon Hill is the area where values are higher than in the rest of the city. Hyde Park (followed by Mattapan) is where the values tend to be lower.
+
+
+This illustrates how adding additional variables that combine the information of others in useful ways, can help us arrive at a better understanding of of our data.
+

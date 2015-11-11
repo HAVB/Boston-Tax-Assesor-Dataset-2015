@@ -1,0 +1,96 @@
+---
+title: "Mapping North Dorchester mixed land use"
+author: "Hector Antonio Vazquez Brust"
+date: "November 8, 2015"
+output: html_document
+---
+
+
+```{r}
+
+# TEST: MAPPING LAND USE
+simplify_LU <- function(LU) {
+  if (LU %in% c("R1", "R2", "R3", "R4", "RL", "A")) {
+      return("RESIDENTIAL")
+    } else if (LU %in% c("CM", "CP")) {
+      return("CONDO")
+    } else if (LU == "CD") {
+      return("CONDO_UNIT")
+    } else if (LU == "RC") {
+      return("MIX_RC")
+    } else if (LU %in% c("CC", "C", "CL")) {
+      return("COMMERCIAL")
+    } else if (LU == "AH") {
+      return("AGRICULTURAL")
+    } else if (LU == "I") {
+      return("INDUSTRIAL")
+    } else if (LU == "E") {
+      return("TAX_EXEMPT")
+    } else if (LU == "EA") {
+      return("TAX_EXEMPT_BRA")
+    } else {
+      return(NA)
+    }
+}
+
+
+#Create a new column by applying the simplifyLU function
+TAdata <- transform(TAdata, SIMPLIFIED_LU = sapply(LU, simplify_LU))
+
+table(TAdata[TAdata$BRA_PD=="North Dorchester",]$SIMPLIFIED_LU)
+
+```
+
+```{r}
+base + geom_point(data=TAdata, aes(x = X, y = Y, color = as.factor(SIMPLIFIED_LU), alpha = .5)) + scale_colour_brewer(type = "qua") + labs(title = "Boston: land use", color='Land use code', alpha = FALSE) + guides(alpha = FALSE) +
+  theme(plot.title = element_text(size = 24, face="bold"),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        legend.title = element_text(size = 16, face = "bold"),
+        legend.text = element_text(size = 14))
+
+```
+
+```{r}
+base + geom_point(data=TAdata[(TAdata$SIMPLIFIED_LU == "MIX_RC"),], aes(x = X, y = Y), color = "blue", position = "jitter") + labs(title = "Boston: Mixed R/C land use", color='Mixed R/C parcel') + 
+  theme(plot.title = element_text(size = 24, face="bold"),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        legend.title = element_text(size = 16, face = "bold"),
+        legend.text = element_text(size = 14))
+
+```
+
+
+```{r}
+#Zoom in on North Dorchester
+ndot <- get_map(location=c(left = -71.0829, bottom = 42.30555, right = -71.030204, top = 42.338), color = "bw")
+ndotmap<- ggmap(ndot)
+```
+
+
+
+```{r}
+ndotmap + geom_point(data=TAdata[(TAdata$SIMPLIFIED_LU == "MIX_RC" & TAdata$BRA_PD == "North Dorchester"),], aes(x = X, y = Y), color = "blue", position = "jitter") + labs(title = "North Dorchester: Mixed R/C land use", color='Mixed R/C parcel') + 
+  theme(plot.title = element_text(size = 24, face="bold"),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        legend.title = element_text(size = 16, face = "bold"),
+        legend.text = element_text(size = 14))
+
+```
+
+```{r}
+rcndot <- TAdata[TAdata$BRA_PD == "North Dorchester" & TAdata$SIMPLIFIED_LU == "MIX_RC" & TAdata$ST_NAME == "Dorchester",]
+
+
+```
+
+
+

@@ -1,0 +1,201 @@
+---
+title: "Get to Know the Contents of Your Data"
+author: "Hector Antonio Vazquez Brust"
+date: "September 30, 2015"
+output: html_document
+---
+
+
+##Value, value, value
+
+We continue our exploration of the 2015 Tax Assesor dataset: can we make it tell us something interesting about Boston's land and building value dynamics? (spoiler alert: for sure!)
+
+
+
+###What is the "most valuable" neighbourhood? And the least?
+
+The quotes are warranted because we'll be only looking at assesed land and building values. Other (some times more important) kinds of  value, like the accumulated traditions, history, culture  or artistic production of a neighbourhood are not measured... our dataset is not _that_ complete! 
+
+Some preparations first:
+
+```{r}
+options(scipen = 99) # this prevents R from displaying large numbers with scientific notation
+
+TAdata <- read.csv('data/Tax Assessor 2015 - Data.csv') #load the Tax Assesor dataset
+
+library(plyr) #load the plyr library, very useful for "SAC" operations (split, apply, combine)
+
+```
+
+Now we are ready to do some work. The NSA_NAME variable contains the neighbourhood to wich a parcel belongs, so we'll base our grouping on it.
+
+```{r}
+nb.value <- ddply(TAdata[(!is.na(TAdata$NSA_NAME) & !is.na(TAdata$AV_TOTAL)), ], .(NSA_NAME), summarise, value = sum(as.numeric(AV_TOTAL)/1000000000))
+
+nb.value <- arrange(nb.value, desc(value)) # order the results by value
+
+```
+
+
+The highest and lowest ranked areas look like this (the values are expressed in billions of USD):
+
+```{r}
+head(nb.value)
+tail(nb.value)
+```
+
+
+The most valuable neighbourhoods, as per the tax assesment, are Downtown, the airport area, and the Medical Center area. It's not suprising, taking into account the relevace of all of those areas for the City of Boston. 
+
+The least valuable are Bowdoin North, Fields Corner East, and Georgetown.
+
+Statistics summary:
+
+```{r}
+summary(nb.value)
+```
+
+
+A ["treemap"](https://en.wikipedia.org/wiki/Treemapping) is a graphical representation well suited to display a multitud of comparable objects. We'll ask R to create a Boston neighbourhood assessed value treemap graph for us.
+
+
+```{r}
+
+library(treemap)
+
+treemap(nb.value, index = "NSA_NAME", vSize = "value", vColor = "value", type = "value", title = "Boston areas, assesed value (2015)", force.print.labels = TRUE, title.legend = "Billions of USD") 
+
+```
+
+(apologies for the impossible-to-read labels corresponding to the lower assessed value areas)
+
+__Conclusion:__ The assesed value of the Downtown area (1st ranked), is almost 188 times larger than the value for Georgetown (last ranked). Both the median and the mean are quite small compared with the value of the top neighbourhoods. 
+
+Could This be a characteristic of cities that, for historical reasons, contain a significantly developed downtown area? It would be interesting to compare this dataset with similar ones ofr other cities.
+
+
+
+####Do newer buildings tend to be assesed as more valuable than older ones?
+
+
+To answer this, let's compare three periods: 
+
+* up to 1899
+
+* 1900 - 1950
+
+* 1950 onwards
+
+
+Before we start we need to fix a problem: some buildings don't have a year of construction specified (or, worse, have "0" as the YR_BUILT value). We'll remove these cases from our dataset.
+
+Also, some buildings have a value of zero -probably because they are in fact empty lots. We'll remove those too.
+
+
+
+```{r}
+
+TAdata.cleaned <- TAdata[(TAdata$YR_BUILT != "0") & !is.na(TAdata$YR_BUILT) & (TAdata$AV_BLDG > 80000) & !is.na(TAdata$AV_BLDG),]
+
+```
+
+We'll categorize our buildings according to their periods. A custom function will help:
+
+```{r}
+
+categorize_period <- function(year) 
+{ if (year > 1950) {
+  return("1950 or after")
+  } else if (year > 1899) {
+      return("1900-1949")
+    } else return("1899 or before")
+  }
+
+TAdata.cleaned$period <- sapply(TAdata.cleaned$YR_BUILT, FUN = categorize_period)
+
+
+```
+
+Let's see what we got! We can compare, graphically, the distribution of values for our three periods. A [box plot graph](http://www.physics.csbsju.edu/stats/box2.html) is our choice, since it's a standardized way to display statistical summaries. For the Y axis, a log(10) scale will be used to account for the extreme deferences in value (otherwise, the graph would look squashed against th X axis).
+
+
+```{r}
+
+library(ggplot2)
+
+ggplot(TAdata.cleaned, aes(x = period, y = AV_BLDG, fill = period)) + geom_boxplot() + guides(fill = FALSE) + labs(title = "City of Boston. \nBuilding value by period of construction (2015 assessment)", x = "Period", y = "Value (USD)") + theme(plot.title = element_text(lineheight=.8, face="bold")) + scale_y_log10() 
+
+```
+
+In a box plot, the horizontal bar is the median value, and the box contains all the values between the 1st and 3d quartile. The dots are supected outliers. Taking a closer look at the extreme values:
+
+```{r}
+ddply(TAdata.cleaned, .(period), summarise, mean = mean(AV_BLDG), median = median(AV_BLDG), min = min(AV_BLDG), max = max(AV_BLDG))
+```
+
+The max building value for every period is the same number, 1244698700. Weird!
+
+But how many buildings have that value, and where are they?
+
+```{r}
+TAdata[TAdata$AV_BLDG == max(TAdata$AV_BLDG), c("ST_NUM", "ST_NAME", "OWNER", "YR_BUILT", "AV_BLDG", "GROSS_TAX")]
+
+```
+
+All of these buildings belong to the same owner -the General Hospital Corporation- and are located at the same address. The values seem pretty high, but at least they are not paying taxes for any of the sixteen!
+
+
+__Conclusion:__ As with the "neighbourhood value" analyisis, here it must be said that we can only define value as the estimation that the Assesor's office made for tax purposes. Establishing market value is a different matter, and we would need to take into account many more variables if we were to pursue that path.
+
+According to the box plot graph, the general value of buildings, as categorized by our three periods, is surprisingly similar. Even so, the oldest buildings tend to be the most valuable, excluding outliers.
+
+
+
+####Who owns the most of Boston?
+
+Again, we'll have to take the word of the Boston Assesing Departmant, since we are limiting our investigation to the Tax Assesment database.
+
+Let's aggregate land and building property value, by owner:
+
+```{r}
+
+owners.aggr <- ddply(TAdata, .(OWNER), summarise, "Properties" = sum(!is.na(OWNER)), Total.value = sum(as.numeric(AV_TOTAL), na.rm=TRUE))
+owners.aggr <- arrange(owners.aggr, desc(Total.value))
+
+```
+
+Now it's east to find who the top ten owners are:
+
+```{r}
+head(owners.aggr, 10)
+
+```
+
+Number one, and with a difference, is the Massachusetts Porth Autority. 
+
+The name is mispelled ("AUTHORTY"). Are there any other instances of it, with a different spelling?
+
+```{r}
+owners.aggr[grep(" PORT AUTH", owners.aggr$OWNER),]
+```
+
+The Port Authority appears under different names seven times. Let's estimate which percentage of the city assessed value is owned by the MPA, adding up every instance:
+
+```{r}
+sum(owners.aggr[grep(" PORT AUTH", owners.aggr$OWNER),3]) / sum(owners.aggr$Total.value)
+```
+
+
+__Conclusion:__ Of the top ten land and building owners in Boston, four are public entities. The rest are non-profit organizations, all of them either an University or affiliated to one. The top spot is reserved for the Massachussets Port Authority, owning almost 12% of all the assessed value in the city.
+
+
+
+##Wrap-up
+
+We have discovered that real state property in the Downtown area is assessed as 188 times more valuable than all of the property in Georgetown. 
+Also, that buildings built before the 20th century tend to be more valuable than the others, even if, in aggregate, there's not much dispersion in building value for the periods that we analized. 
+We now know that the Massachusetts Por Authority is, by far, the owner of the most of Boston... more than ten percent of city real estate belongs to it!
+
+There are strange things in the Tax Assesor database, some mundane (an obvious typo repeated 65 times), and some with a plausible explanation: structures listed as built in the year zero, may mean an unknown date: having the 16 most valuable buildings assessed with the exact same number may mean that Tax Assessor assessed the value of the entire building complex, and neatly divided the total by the number of structures.
+
+An additional lesson here is that a portion of the data analysis workflow is hard and unglamorous. A dataset of hundreds of thousand of lines is bound to have unaccuracies, internal discrepancies, and flat out mistakes in the form of typos, omissions, or errors during data entry. Cleaning up the data before itss use is tedious and time-consuming... but absolutely necessary for quality results.

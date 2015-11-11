@@ -1,0 +1,155 @@
+---
+title: "Mapping ecometrics"
+author: "Hector Antonio Vazquez Brust"
+date: "November 6, 2015"
+output: html_document
+---
+```{r, echo=FALSE}
+options(scipen = 99) # this prevents R from using scientific notation to display large numbers
+
+library(ggplot2)
+TAdata <- read.csv('C:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/Boston-Tax-Assesor-Dataset-2015/data/Tax Assessor 2015 - Data.csv', stringsAsFactors = FALSE) #load the Tax Assesor dataset
+
+TAdata <- transform(TAdata, AV_LAND_PER_SF = ifelse((AV_LAND != 0 & LAND_SF != 0), AV_LAND / LAND_SF, NA))
+
+```
+
+##Mapping the realtive value of every building in the city
+
+Having decided that we want to measure urban segregation in Boston, we are looking for clues that we can actually observe in our dataset. 
+
+To understand the spatial arrangement of different (and maybe unequal) characteristics of the city's built environment, we will select a variable to put on the map.
+
+Working the Tax Assessor's dataset, building value is one the variables that usually come to mind when choosing what to compare. We have already created a new variable that measures building value normalized by building size ("AV_BLDG_PER_SF"). We will now create and additional variable, to rank from 1 to 10 the comparative value of a particular building compared to the entirety of Boston's building stock. For the statistically minded, what we'll do is calculate the decile every building on our dataset belongs to.
+
+
+```{r message=FALSE}
+library(dplyr)
+
+#Extract a subset from our columns (Only the variables we are interested in)
+parcels <- select(TAdata, AV_LAND, AV_BLDG, AV_TOTAL, GROSS_TAX, LAND_SF, YR_BUILT, YR_REMOD, CT_ID_10, X, Y, BRA_PD, AV_LAND_PER_SF, AV_BLDG_PER_SF)
+
+#Add a column with a 1 to 10 ranking (decile) for the parcel's sq foot value
+parcels <- mutate(parcels,  BLDG_RANK = ceiling(rank(AV_BLDG_PER_SF,na.last="keep")/length(which(!is.na(AV_BLDG_PER_SF)))*10) )
+
+```
+
+So this is how the new decile/rank variable looks:
+
+```{r}
+head(select(parcels, AV_BLDG_PER_SF, BLDG_RANK ))
+```
+
+
+Let's map our new variable over Boston:
+
+```{r message=FALSE, warning=FALSE}
+require(ggplot2)
+require(ggmap)
+Boston <- get_map(location=c(left = -71.193799, bottom = 42.11, right = -70.985746, top = 42.515), color = "bw")
+base<- ggmap(Boston)
+
+base + geom_point(data=parcels, aes(x = X, y = Y, color = as.factor(BLDG_RANK), alpha = .5)) + scale_colour_brewer(type = "div", palette = 9) + labs(title = "Boston: building stock value distribution", color='Building value decile \
+(higher decile = higher assessed value)', alpha = FALSE) + guides(alpha = FALSE) +
+  theme(plot.title = element_text(size = 24, face="bold"),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        legend.title = element_text(size = 16, face = "bold"),
+        legend.text = element_text(size = 14))
+
+```
+
+This map confirms what the conclusions that we arrived to when we compared neighborhood mean values: Back Bay/Beacon Hill as the most valued, Dorchester, Mattapan, Roxbury as the least. However, mapping the values does provide further insights: it is remarkable how spatially concentrated the high value buildings are, and how close to each other lay the areas with the higher and lesser values.
+
+## Mapping diversity
+
+We will now turn our attention towards diversity. Having given a 1 to 10 ranking to every building in the city, we can use that as a taxonomy for an index of the neighborhood internal variety of building value; which can also be interpreted as an index of variety in property affordability. 
+
+We can borrow a a mathematical tool from the field of biology, where diversity is understood as the variety of "species" in a given environment. Buildings corresponding to different value ranks will be considered as members of different "species" in a given neighborhood environment.
+
+To obtain this index we will use Shannon's algorithm (also known as Shannon-Weaver), of widespread use in ecology studies. The Shannon index H can be calculated as:
+
+$$ - \sum_{p=1}^S p_i \log p_i $$
+
+where $p_i$ is the proportion of species $i$ and $S$ is the total number of species.
+
+We'll make use of R package _vegan_, which includes a function to calculate Shannon's index.  
+
+Since we want to compare diversity at the Census Tract level, which provides better spatial resolution that the neighborhood level, we'll aggregate our data by census tract ID.
+
+
+```{r message=FALSE}
+library(vegan)
+
+#Creating a census tract built environment diversity index
+built.environment.diversity <-summarise(group_by(filter(parcels, !is.na(CT_ID_10)), CT_ID_10), 
+                                        BUILT_ENV_DIV = diversity(table(BLDG_RANK)))
+
+summary(built.environment.diversity$BUILT_ENV_DIV)
+```
+
+Now we load census data that includes ethnic diversity information -or "ethnic heterogeneity", column EthHet), to merge it with our built environment diversity dataset:
+
+```{r}
+demographics <- read.csv('C:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/Census/Tract Census Data.csv', stringsAsFactors = FALSE)
+
+summary(demographics$EthHet)
+
+#Combine Built Environment Diversity and demographics data
+bed.demog <- merge(demographics, built.environment.diversity)
+
+```
+
+Now we load a shape file with the geographic extents of Boston's census tracts, turn it into a data frame, and merge it with our data:
+
+```{r message=FALSE}
+library(rgdal)
+
+tracts_geo <- readOGR(dsn = 'C:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/shapefiles/Tracts_Boston_2015_BARI', 'Tracts_Boston BARI')
+
+tracts_geo <- fortify(tracts_geo, region = "CT_ID_10")
+
+tracts_geo <- merge(tracts_geo, bed.demog, by.x = 'id', by.y = 'CT_ID_10', all.x = TRUE)
+
+```
+
+Ready to map! First, a map of Boston's built environment diversity, by census tract:
+
+```{r warning=FALSE}
+base + geom_polygon(aes(x=long, y=lat, group=group, fill=BUILT_ENV_DIV),
+                    data=filter(tracts_geo, (grossrent > 0))) + 
+  geom_path(aes(x=long, y=lat, group=group), color = 'gray', data=tracts_geo) +
+  scale_fill_gradient(low = "firebrick1", high = "darkseagreen1") +
+  labs(title = "Boston: built environment value diversity", fill='Diversity index') +
+  theme(plot.title = element_text(size = 24, face="bold"),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        legend.title = element_text(size = 16, face = "bold"),
+        legend.text = element_text(size = 14))
+
+```
+
+
+And now a map of ethnic diversity. We'll plot the ethnic diversity index that the US Census Bureau has calculated for us:
+
+```{r warning=FALSE}
+base + geom_polygon(aes(x=long, y=lat, group=group, fill=EthHet),
+                    data=filter(tracts_geo, (grossrent > 0))) + 
+  geom_path(aes(x=long, y=lat, group=group), color = 'gray', data=tracts_geo) +
+  scale_fill_gradient(low = "firebrick1", high = "darkseagreen1") +
+  labs(title = "Boston: Ethnic diversity", fill='Diversity index') +
+  theme(plot.title = element_text(size = 24, face="bold"),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        legend.title = element_text(size = 16, face = "bold"),
+        legend.text = element_text(size = 14))
+
+```
+
+What we are comparing with the last two maps is, in a sense, ethnic diversity versus diversity in purchasing power. It's hard to visualize a clear pattern; conclusions will have to wait until we can refine our analysis.

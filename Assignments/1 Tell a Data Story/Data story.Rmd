@@ -1,0 +1,217 @@
+---
+title: "Boston Tax Assesor 2015 - a data story"
+author: "Hector Antonio Vazquez Brust"
+date: "09/25/15"
+output: html_document
+---
+
+For this exercise, we will attempt to "tell a story", using data from the City of Boston Assesing Department. To accomplish this, our tool of choice will be the [R statistical programming language](https://www.r-project.org/). 
+
+And how do we do that? Finding some interesting facts buried within the dataset -and expressing them with clarity and precision in an easy to read way- will be a good start.
+
+We'll explore the 2015 Boston Tax Assessor dataset, a snapshot of the City of Boston Assessing Department’s centralized database for parcel data for every identifiable parcel in the city for the year 2015. This dataset was made available to the public as part of the City of Boston’s open data initiative.
+
+So let's get to work!
+
+First, we'll briefly describe the structure of our data set, and explain in detail one of the cases contained within.
+
+We begin by loading the dataset, and assigning it to a variable called "TAdata". We then check if the data was loaded:
+
+
+```{r}
+TAdata <- read.csv('data/Tax Assessor 2015 - Data.csv', stringsAsFactors = FALSE)
+```
+
+Then we find out how many observations (rows) are included in the dataset
+
+```{r}
+nrow(TAdata)
+```
+
+How many variables are available for analysis...
+
+```{r}
+ncol(TAdata)
+```
+
+...and their names:
+
+```{r}
+names(TAdata)
+```
+
+
+With the help of the dataset's codebook (available at the [Harvard Dataverse](https://dataverse.harvard.edu/)), that defines each variable and its range of values, we can choose one or more variables for further investigation. "LU" (land use), YR_BUILT","OWN_OCC", (a variable that checks if the owner of the parcel lives in it), "NUM_FLOORS", sound interesting. 
+
+Focusing on these variables, we'll take a look at three cases, selected for no particular reason other than their ordinal positions in our dataset: the first one, the one at the middle, and the last one. 
+
+```{r}
+TAdata[c(1,nrow(TAdata)/2, nrow(TAdata)), c("LU", "YR_BUILT","OWN_OCC", "NUM_FLOORS")]
+```
+
+What have we learnt about these three individual cases?
+
+We got-
+
+* A three-story house from 1900, occupied by its owner
+* A three-story house from 1905, not occupied by its owner
+* A single story tax-exempt site, dating from 1900, not occupied by its owner
+
+By comparing the differences between the two houses -or, lack thereof- we may suspect that the early 1900's three family residential unit is widespread in Boston. 
+
+These few cases are not enough to generalize, but they illustrate characteristics of the City of Boston housing stock, that we can further analyse to determine if they are predominant.
+
+The data does not specify what's in the tax-exempt parcel, but we can infer that there's no building in it -the empty "roof type" variable seems to support this conclusion.
+
+So, let's propose some hypothesis about Boston's built environment: 
+
+* Many parcels are not occupied by their owners
+* Three-storied buildings are common
+* There are plenty of structures built during the first decade of the 20th century (was it a "boom time" for the city?)
+
+We can investigate further, and see if the hypothesis hold up.
+
+Let's start by finding out the percentage of cases in which the occupant is the owner of the parcel.
+
+To do that, first we select a subset where the OWN_OCC variable equals "Y"
+
+```{r}
+owner_occupants <- TAdata[TAdata$OWN_OCC == "Y",]
+nrow(owner_occupants)
+```
+
+Now we know there are 75281 properties where the owner is the occupant.
+
+Just in case, we make sure that we didn't left out any rows with an unexpected value (i.e. either "Y" or "n")
+
+```{r}
+nrow(TAdata[TAdata$OWN_OCC != "Y" | TAdata$OWN_OCC != "N",])
+```
+
+Knowing that owner occupancy is defined for every parcel, we can obtain the % of owner occupancy for the total of parcels in the city of Boston:
+
+```{r}
+owner_occupancy_rate <- nrow(owner_occupants) / nrow(TAdata)
+owner_occupancy_rate
+```
+
+__And now we know that 44.8% of the parcels in Boston are occupied by their owners! (and by the way, the working hypothesis was wrong)__
+
+Now, let's see how common three-storied buildings are.
+
+This is an opportunity to make use of ggplot2 library, an extension of the R programming language with powerful graphic generation capabilities. We'll tell R that we want to start using ggplot2: 
+
+```{r}
+library(ggplot2)
+```
+
+
+Now, let's plot the distribution of buildings, by # of floors:
+
+```{r}
+ggplot(data=TAdata, aes(x=NUM_FLOORS)) + geom_bar(binwidth = 1) + ggtitle("Boston: Parcels by floor #")
+```
+
+The answer is clear: __Three-story buildings are common in boston, only surpassed in quantity by 2 and 1-storied structures.__
+
+With just a slight adjustment, we can use a similiar histogaram plot to find out if the early 1900's were a boom period for the City Boston, as evidenced by a particularly high number of structures being built: 
+
+```{r}
+ggplot(data=TAdata, aes(x=YR_BUILT)) + geom_bar(binwidth = 1) + ggtitle("Boston: Structures built by year")
+```
+
+The result does not look quite right. Our plot's Y axis, which represents year of construction, starts a 0 -probably because unknown building dates are listed as "0" in our dataset.
+
+Let's take a look at how many cases show a year earlier than the founding of the city in 1630:
+
+```{r}
+nrow(TAdata[TAdata$YR_BUILT < "1630" ,])
+```
+
+And how many cases show 0 as its building year:
+
+```{r}
+nrow(TAdata[TAdata$YR_BUILT == "0" ,])
+```
+
+It's the same number! That's a good sign: if every suspicious date is 0, we can safely assume that such a value simply means that the year was unknown at the time the parcel was added to the database.
+
+We remove the "year zero" cases:
+
+```{r}
+TAdata_no_year_zero <- TAdata[TAdata$YR_BUILT != "0" ,]
+```
+
+We plot once again:
+
+```{r}
+ggplot(data=TAdata_no_year_zero, aes(x=YR_BUILT)) + geom_bar(binwidth = 1) + ggtitle("Boston: Structures built by year")
+```
+
+Now the result looks better, and also confirms our guess: __the turn of the 20th century was a period of intense building activity in Boston, probably* unsurpassed before or since__.
+
+* Two caveats: all, or most of those buildings that we left out of the plot, could have been built on a specific year (say, 1960) and in that case, the early 1900's would not be the period of highest construction activity. Also, it may be the case that in the remote past, there was a period of record building activity, but we can't tell with our data since most structures were demolished since. (Of course, this is not likely.)
+
+---------------
+
+Let's try yet another example of data storytelling.
+
+While reading the dataset description document, I noticed that on of the roof types (that is, one of the possible values for the R_ROOF_TYP variable) is "Mansard". Since I'm born and raised in Buenos Aires, that caught my attention: the mansard roof, typical of Second Empire french architecture, is a cherished characteristic of many buildings in my home city. Buenos Aires shows a remarkable french influence in many of its buildings, especially those built during the late XIX century.
+
+![](http://photos.wikimapia.org/p/00/01/22/75/37_big.jpg)
+
+A mansard roof house in Buenos Aires. Photograph by [world_citizen](http://wikimapia.org/#lang=en&lat=42.361600&lon=-71.067400&z=12&m=b&show=/user/201963/)
+
+
+![](http://cache.boston.com/bonzai-fba/Globe_Photo/2008/01/03/1199380220_7715.jpg)
+
+A mansard roof house in Boston. Photograph by [The Boston Globe](http://www.boston.com/realestate/gallery/homeoftheweek/010608/)
+
+
+So, is Boston another city where the Second Empire french style was in vogue?
+
+This bit of information from wikipedia page dedicated to the mansard roof is promising:
+
+>The mansard roof became popular once again during Haussmann's renovation of Paris beginning in the 1850s, in an architectural movement known as "Second Empire style".
+>
+>Second Empire influence spread throughout the world, frequently adopted for large civic structures such as government administration buildings and city halls, as well as hotels and railway stations. In the United States and Canada, and __especially in New England__, the Second Empire influence __spread to family residences and mansions__, often corrupted with Italianate and Gothic Revival elements
+>
+
+A cursory web search for mansard roofs in Boston informs us that ["No other city in the US has such an array of Mansard roofs, once so popular but now largely obsolete"](http://playlists.alexanderstreet.com/Playlists/View/335235).
+
+Is this true? Was the french mansard popular once in Boston, but has long since faded out of fashion?
+
+To evaluate how popular the mansarde was in Boston we can plot a histogram comparing the amount of new buildings with each roof style as the years progress.
+
+The values that interest us for this are:
+
+YR_BUILT: the year in which the property was built
+R_ROOF_TYP: the roof type for residential structures.
+
+```{r}
+ggplot(data=TAdata_no_year_zero, aes(x=YR_BUILT, fill=R_ROOF_TYP)) + geom_bar(binwidth = 50) + ggtitle("Boston: yearly building construction, by roof type")
+```
+
+
+Not bad, but we need to get rid of cases where the R_Roof_Type variable is empty (colored salmon in our previous graph) since they don't help us. 
+
+```{r}
+TAdata_no_year_zero_no_empty_rooftype <- TAdata_no_year_zero[TAdata_no_year_zero$R_ROOF_TYP != "" ,]
+```
+
+Let's plot our data again:
+
+```{r}
+ggplot(data=TAdata_no_year_zero_no_empty_rooftype, aes(x=YR_BUILT, fill=R_ROOF_TYP)) + geom_bar(binwidth = 25) + ggtitle("Boston: yearly building construction, by roof type")
+```
+
+We can see that, indeed, a mansard (M) was the roof of choice for a noticeable portion of houses built in Boston, appearing on the second half of the XIXth century and gaining popularity in the next few decades, but practically disappearing after the first third of the XXth century. 
+
+Using the Tax Assesor data, we can confirm the reported popularity (and later on, complete disappearance) of the mansard roof in Boston, and even the Wikipedia fact of the style regaining popularity after the 1850s!
+
+We'll complete this exercise with a final graphic: a distribution of roof types bypercentage, during the heyday of the mansard roof in Boston:
+
+```{r}
+ggplot(data=TAdata_no_year_zero_no_empty_rooftype[TAdata_no_year_zero_no_empty_rooftype$YR_BUILT > 1800 & TAdata_no_year_zero_no_empty_rooftype$YR_BUILT < 1930,], aes(x=YR_BUILT, fill=R_ROOF_TYP)) + geom_bar(position = "fill", binwidth = 1) + ggtitle("Boston: yearly building construction\npercentage by roof type. 1840 - 1930")
+```
+
