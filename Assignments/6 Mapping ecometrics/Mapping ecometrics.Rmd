@@ -14,7 +14,7 @@ TAdata <- transform(TAdata, AV_LAND_PER_SF = ifelse((AV_LAND != 0 & LAND_SF != 0
 
 ```
 
-##Mapping the realtive value of every building in the city
+##Mapping the relative value of every building in the city
 
 Having decided that we want to measure urban segregation in Boston, we are looking for clues that we can actually observe in our dataset. 
 
@@ -85,7 +85,8 @@ library(vegan)
 
 #Creating a census tract built environment diversity index
 built.environment.diversity <-summarise(group_by(filter(parcels, !is.na(CT_ID_10)), CT_ID_10), 
-                                        BUILT_ENV_DIV = diversity(table(BLDG_RANK)))
+                                        BUILT_ENV_DIV = diversity(table(BLDG_RANK)),
+                                        BUILT_ENV_DIS = var(BLDG_RANK, na.rm = TRUE)/mean(BLDG_RANK, na.rm = TRUE))
 
 summary(built.environment.diversity$BUILT_ENV_DIV)
 ```
@@ -118,7 +119,7 @@ tracts_geo <- merge(tracts_geo, bed.demog, by.x = 'id', by.y = 'CT_ID_10', all.x
 Ready to map! First, a map of Boston's built environment diversity, by census tract:
 
 ```{r warning=FALSE}
-base + geom_polygon(aes(x=long, y=lat, group=group, fill=BUILT_ENV_DIV),
+base + geom_polygon(aes(x=long, y=lat, group=group, fill=BUILT_ENV_DIS),
                     data=filter(tracts_geo, (grossrent > 0))) + 
   geom_path(aes(x=long, y=lat, group=group), color = 'gray', data=tracts_geo) +
   scale_fill_gradient(low = "firebrick1", high = "darkseagreen1") +
