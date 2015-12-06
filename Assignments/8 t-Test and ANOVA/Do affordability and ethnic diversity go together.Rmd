@@ -1,0 +1,137 @@
+---
+title: "t-Test & ANOVA"
+author: "Antonio Vazquez Brust"
+date: "November 27, 2015"
+output: html_document
+---
+
+This week we'll put R's inferential statistics functions to work. Our question is: 
+
+__"Do areas with different building value dispersions exhibit different levels of ethnic diversity?"__
+
+
+To begin, we'll load Tax Assessor's and Census data:
+
+```{r cache=TRUE, message=FALSE}
+TAdata <- read.csv("C:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/data/Tax Assessor/TAdata.csv")
+
+demographics <- read.csv("C:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/data/Census/Tract Census Data.csv")
+
+```
+
+Now we'll estimate a building value dispersion index, intended to represent how much diversity in value (that is to say, in affordability) is given in every Census tract.
+
+The building value dispersion index will be obtained by applying the coefficient of dispersion $D$, defined as the ratio of the variance $\sigma^2$ to the mean $\mu$:
+ 
+
+$$ D = \frac{\sigma^2}{\mu} $$
+ 
+ 
+We'll apply this formula to the aggregation of building value rankings. Measuring the dispersion of value rankings, instead of directly measuring square feet value, solves the problem of outliers skewing the dispersion index.
+
+```{r message=FALSE}
+library(dplyr)
+
+#Calculate building value dispersion
+ct.av.dispersion <- summarise(group_by(filter(TAdata, !is.na(CT_ID_10)), CT_ID_10),
+                              BLDG_VALUE_DISP = var(BLDG_RANK, na.rm = TRUE)/
+                                mean(BLDG_RANK, na.rm = TRUE))
+
+```
+
+Now we'll merge our assessed value dispersion index with the demographics data, and remove tracts where less than 100 people live:
+
+```{r}
+# Merge value dispersion index with demographics data
+demographics <- merge(demographics, ct.av.dispersion, by = "CT_ID_10")
+
+#remove CT's where less than 100 people live
+demographics <- demographics[demographics$totalpop > 100,]
+
+nrow(demographics)
+
+```
+
+We ended up with 170 census tracts, and we are ready to look for answers.
+
+
+__Do the tracts with the lowest value dispersion show an ethnic diversity significantly different that the city's mean?__
+
+To help with our analysis, we will create an ad-hoc variable: Building value dispersion ranking. This will simplify our task by categorizing census tracts in five groups, from "very low" building value dispersion, up to "very high".
+
+```{r}
+demographics <- mutate(demographics,
+                 B_V_DISP_RANK = as.factor(ceiling(rank(BLDG_VALUE_DISP)/ 
+                                       length(BLDG_VALUE_DISP)*5) ))
+
+levels(demographics$B_V_DISP_RANK) <- c("Very_Low", "Low", "Medium", "High", "Very_High")
+
+```
+
+
+We'll conduct a t-Test to answer that, comparing the entire city's sampled ethnic diversity against those tracts with the lowest building value diversity. 
+
+```{r}
+t.test(demographics[demographics$B_V_DISP_RANK == "Very_Low",]$EthHet, 
+       demographics$EthHet)
+
+```
+
+As estimated from Census samples, the city's mean ethnic diversity index value is 0.49. 
+The tracts where value dispersion is the lowest also exhibit a lower diversity mean. Statistically, we are 95% confident that the difference in means is between 0.17 and 0.03.
+
+Is this related to a lower minority proportion in the those tracts' population?
+
+We'll conduct an additional t-Test to answer that, this time comparing the proportion of minorities in the populations (the minority proportion will be measured as 1 - the white population proportion)
+
+```{r}
+
+t.test((1 - demographics[demographics$B_V_DISP_RANK == "Very_Low",]$propwhite), 
+       1 - demographics$propwhite)
+
+```
+
+The proportions are statistically distinct. Minorities in tracts with the lowest building value dispersion are underrepresented; we can tell with 95% confidence that this proportion reduction ranges from 20,27 to 33,75 percent.
+
+
+We may now ask about the complete dynamic of ethnic diversity vs affordability diversity; we now know that there's a difference in ethnic diversity between the tracts with the lowest affordability range and the whole city, but- 
+
+__How do "affordability dispersion brackets" compare to each other? Is there an emerging pattern in associated ethnic diversity?__
+
+An analysis of variance test to compare ethnic diversity differences among all groups is in order:
+
+```{r}
+value.disp.anova <- aov(EthHet ~ B_V_DISP_RANK, data=demographics)
+
+summary(value.disp.anova)
+```
+
+Yes, there is a significant difference between the mean ethnic diversity index values between our groups. But we don't know yet which groups differ. To define that, we'll recur to a Tukey test to compare all the means:
+
+```{r}
+TukeyHSD(value.disp.anova)
+```
+
+Not very readable! Let's try a plot:
+
+```{r}
+#Use shorter level names to fit in plot
+levels(demographics$B_V_DISP_RANK) <- c("VL", "L", "M", "H", "VH")
+
+plot(TukeyHSD(aov(EthHet ~ B_V_DISP_RANK, data=demographics)))
+```
+
+That's better.  The confidence levels that do not cross the 0.0 line are those of groups that are statistically different. So a distinct pattern emerges: Compared among themselves, the top three value dispersion groups do not exhibit significantly different ethnic diversity indices; and the same goes for the lower two groups. At the same time, every comparison between a low-dispersion and a high-dispersion group shows a increase in ethnic diversity in the later.
+
+
+```{r}
+library(ggplot2)
+
+#Back to our previous level names
+levels(demographics$B_V_DISP_RANK) <- c("Very_Low", "Low", "Medium", "High", "Very_High")
+
+qplot(B_V_DISP_RANK, EthHet, data = demographics, stat="summary", fun.y = "mean", xlab = "Building Value Dispersion", ylab = "Ethnic Diversity Index (mean)")
+```
+
+
+Have we found in building value dispersion a reliable proxy to predict ethnic diversity?

@@ -1,0 +1,313 @@
+---
+title: 'SPPUA 5262: City Walk #3'
+author: "Antonio Vazquez Brust"
+date: "November 2015"
+output: pdf_document
+---
+
+
+```{r, eval=FALSE}
+
+#load the Tax Assesor dataset
+TAdata <- read.csv("C:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/data/Tax Assessor/Tax Assessor 2015 - Data.csv", stringsAsFactors = FALSE) 
+
+
+#Add a column with a 1 to 10 ranking (decile) for the parcel's sq foot value
+library(dplyr)
+
+TAdata <- mutate(TAdata,
+                 BLDG_RANK = ceiling(rank(AV_BLDG_PER_SF,na.last="keep")/ 
+                                       length(which(!is.na(AV_BLDG_PER_SF)))*10) )
+
+# fix a single parcel in the entire dataset with LU = "XX", 
+#a land use code that is not registered in the datasat dictionary. 
+#Since the parcel is owned by a church, it's assumed a Tax Exempt parcel.
+
+TAdata[TAdata$LU == 'XX',]$LU <- "E"
+
+# Reduce land use categories
+
+simplify_LU <- function(LU) {
+  if (LU %in% c("R1", "R2", "R3", "R4", "RL", "A")) {
+      return("RESIDENTIAL")
+    } else if (LU %in% c("CM", "CP")) {
+      return("CONDO")
+    } else if (LU == "CD") {
+      return("CONDO_UNIT")
+    } else if (LU == "RC") {
+      return("MIX_RC")
+    } else if (LU %in% c("CC", "C", "CL")) {
+      return("COMMERCIAL")
+    } else if (LU == "AH") {
+      return("AGRICULTURAL")
+    } else if (LU == "I") {
+      return("INDUSTRIAL")
+    } else if (LU == "E") {
+      return("TAX_EXEMPT")
+    } else if (LU == "EA") {
+      return("TAX_EXEMPT_BRA")
+    } else {
+      return(NA)
+    }
+}
+
+#Create a new column by applying the simplifyLU function
+TAdata <- transform(TAdata, SIMPLIFIED_LU = sapply(LU, simplify_LU))
+
+TAdata.res <- filter(TAdata, (SIMPLIFIED_LU == "RESIDENTIAL" | SIMPLIFIED_LU == "CONDO_UNIT" | SIMPLIFIED_LU == "MIX_RC"))
+
+TAdata.rc <- filter(TAdata, (SIMPLIFIED_LU == "RESIDENTIAL" | SIMPLIFIED_LU == "COMMERCIAL" | SIMPLIFIED_LU == "CONDO_UNIT" | SIMPLIFIED_LU == "MIX_RC"))
+
+# Calculate the land use diversity index
+library(vegan)
+
+nb.lu.index <- summarise(group_by(filter(TAdata, !is.na(BRA_PD)), BRA_PD),
+                         LAND_USE_DIV = diversity(table(SIMPLIFIED_LU)))
+
+nb.lu.index.res <- summarise(group_by(filter(TAdata.res, !is.na(BRA_PD)), BRA_PD),
+                         LAND_USE_DIV = diversity(table(SIMPLIFIED_LU)))
+
+ct.lu.index <- summarise(group_by(filter(TAdata, !is.na(CT_ID_10)), CT_ID_10), 
+                                        LAND_USE_DIV = diversity(table(SIMPLIFIED_LU)))
+
+ct.lu.index.res <- summarise(group_by(filter(TAdata.res, !is.na(CT_ID_10)), CT_ID_10), 
+                                        LAND_USE_DIV = diversity(table(SIMPLIFIED_LU)))
+
+#Create a built environment value dispersion index, by Census tract
+
+ct.av.dispersion <- summarise(group_by(filter(TAdata, !is.na(CT_ID_10)), CT_ID_10),
+                              BUILT_ENV_DISP = var(BLDG_RANK, na.rm = TRUE)/
+                                mean(BLDG_RANK, na.rm = TRUE))
+
+ct.av.dispersion.res <- summarise(group_by(filter(TAdata.res, !is.na(CT_ID_10)), CT_ID_10),
+                              BUILT_ENV_DISP = var(BLDG_RANK, na.rm = TRUE)/
+                                mean(BLDG_RANK, na.rm = TRUE))
+
+ct.av.dispersion.rc <- summarise(group_by(filter(TAdata.rc, !is.na(CT_ID_10)), CT_ID_10),
+                              BUILT_ENV_DISP = var(BLDG_RANK, na.rm = TRUE)/
+                                mean(BLDG_RANK, na.rm = TRUE))
+
+
+nb.av.dispersion <-summarise(group_by(filter(TAdata, !is.na(BRA_PD)), BRA_PD),
+                                        BUILT_ENV_DISP = var(BLDG_RANK, na.rm = TRUE)/
+                               mean(BLDG_RANK, na.rm = TRUE))
+
+```
+
+
+```{r}
+require(ggplot2)
+require(ggmap)
+require(rgdal)
+require("RColorBrewer")
+
+CT25025070402 <- filter(TAdata, CT_ID_10 == 25025070402)
+CT25025070402.demog <- filter(demographics, CT_ID_10 == 25025070402)
+
+tracts_geo <- readOGR(dsn = 'C:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/shapefiles/Tracts_Boston_2015_BARI', 'Tracts_Boston BARI')
+
+tracts_geo <- fortify(tracts_geo, region = "CT_ID_10")
+
+tracts_geo <- merge(tracts_geo, ct.lu.index, by.x = 'id', by.y = 'CT_ID_10', all.x = TRUE)
+
+tracts_geo <- merge(tracts_geo, ct.av.dispersion, by.x = 'id', by.y = 'CT_ID_10', all.x = TRUE)
+
+CT25025070402.map <- get_map(location=c(left = -71.0705, bottom = 42.34150, right = -71.05950, top = 42.34840), color = "bw")
+
+base<- ggmap(CT25025070402.map)
+
+
+my.map.theme <- theme(plot.title = element_text(size = 18, face="bold"),
+                      axis.title.x = element_blank(),
+                      axis.title.y = element_blank(),
+                      axis.text.x = element_blank(),
+                      axis.text.y = element_blank(),
+                      legend.title = element_text(size = 16, face = "bold"),
+                      legend.text = element_text(size = 14))
+myPalette <- colorRampPalette(brewer.pal(10, "Spectral"))
+
+
+LUmap <- base + geom_point(data=CT25025070402, aes(x = X, y = Y, color = factor(BLDG_RANK), shape = factor(SIMPLIFIED_LU)), size = 6) + 
+geom_path(aes(x=long, y=lat, group=group), color = 'red', data=tracts_geo) + 
+labs(title = "CT 25025070402: parcels", color='Building value decile \
+(higher decile = higher assessed value)', shape = "Land use") + guides(size = FALSE) +
+  scale_colour_brewer(type = "div", palette = 9) + my.map.theme
+
+LUmap
+
+
+
+
+table(CT25025070402$LU)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r eval=FALSE, echo=FALSE}
+####################################################################################
+# PLOTS
+####################################################################################
+
+require(ggplot2)
+
+my.plot.theme <- theme(plot.title = element_text(size = 18, face="bold"),
+                       axis.title.x = element_text(size = 14, face = "bold"),
+                       axis.title.y = element_text(size = 16, face = "bold"),
+                       axis.text.x = element_text(size = 12),
+                       axis.text.y = element_text(size = 12),
+                       legend.title = element_text(size = 16, face = "bold"),
+                       legend.text = element_text(size = 14))
+
+#Histogram - Land use diversity at the neighborhood level
+
+
+hist1 <- ggplot(nb.lu.index, aes(x = LAND_USE_DIV)) + geom_histogram() + labs(title = "Land Use Diversity Histogram\nNeighborhood Level", x = "Land use diversity index", y = "Count") + my.plot.theme
+
+
+
+# Histogram: Land use diversity at the census tract level
+
+hist2 <- ggplot(ct.lu.index, aes(x = LAND_USE_DIV)) + geom_histogram() + labs(title = "Land Use Diversity Histogram\nCensus Tract Level", x = "Land Use diversity index", y = "Count") + my.plot.theme 
+
+
+#Histogram - Assessed value dispersion at the neighborhood level
+
+
+hist3 <- ggplot(nb.av.dispersion, aes(x = BUILT_ENV_DISP)) + geom_histogram() + labs(title = "Assessed Value Dispersion Histogram\nNeighborhood Level (2015 assessment)", x = "Assessed value dispersion index", y = "Count") + my.plot.theme
+
+
+
+
+# Histogram: Assessed value dispersion at the census tract level
+
+hist4 <- ggplot(ct.av.dispersion, aes(x = BUILT_ENV_DISP)) + geom_histogram() + labs(title = "Assessed Value Dispersion Histogram\nCensus Tract Level", x = "Assessed value dispersion index", y = "Count") + my.plot.theme 
+
+
+####################################################################################
+#MAPS
+####################################################################################
+
+#Load a shape file with the geographic extents of Boston's census tracts, turn it into a data frame, and merge it with our data
+
+library(rgdal)
+
+tracts_geo <- readOGR(dsn = 'C:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/shapefiles/Tracts_Boston_2015_BARI', 'Tracts_Boston BARI')
+
+tracts_geo <- fortify(tracts_geo, region = "CT_ID_10")
+
+tracts_geo <- merge(tracts_geo, ct.lu.index, by.x = 'id', by.y = 'CT_ID_10', all.x = TRUE)
+
+tracts_geo <- merge(tracts_geo, ct.av.dispersion, by.x = 'id', by.y = 'CT_ID_10', all.x = TRUE)
+
+
+#Now at the neighborhood level
+
+neighborhoods_geo <- readOGR(dsn = 'C:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/shapefiles/Neighborhoods_Boston_2015', 'Neighborhoods_Boston_2015')
+
+neighborhoods_geo <- fortify(neighborhoods_geo, region = "BRA_PD")
+
+neighborhoods_geo <- merge(neighborhoods_geo,mf.vs.condo, by.x = 'id', by.y = 'BRA_PD', all.x = TRUE)
+
+neighborhoods_geo <- merge(neighborhoods_geo, nb.av.dispersion, by.x = 'id', by.y = 'BRA_PD', all.x = TRUE)
+
+require(ggmap)
+
+my.map.theme <- theme(plot.title = element_text(size = 18, face="bold"),
+                      axis.title.x = element_blank(),
+                      axis.title.y = element_blank(),
+                      axis.text.x = element_blank(),
+                      axis.text.y = element_blank(),
+                      legend.title = element_text(size = 16, face = "bold"),
+                      legend.text = element_text(size = 14))
+
+
+library("RColorBrewer")
+myPalette <- colorRampPalette(brewer.pal(11, "Spectral"))
+
+
+#A map of Boston's land use Diversity, by Neighborhood
+
+map1 <- ggplot() + geom_polygon(aes(x=long, y=lat, group=id, fill=LAND_USE_DIV),
+                        data=neighborhoods_geo) + 
+  geom_path(aes(x=long, y=lat, group=group), color = 'gray', data=neighborhoods_geo) +
+  scale_fill_gradientn(colours = myPalette(100), limits=c(0.8, 1.4)) +
+  labs(title = "Land Use diversity\nNeighborhood Level", fill='Land use\ndiversity index') + coord_map() + my.map.theme 
+
+
+#A map of Boston's land use diversity, by census tract
+
+map2 <- ggplot() + geom_polygon(aes(x=long, y=lat, group=id, fill=LAND_USE_DIV),
+                        data=tracts_geo) + 
+  geom_path(aes(x=long, y=lat, group=group), color = 'gray', data=tracts_geo) +
+  scale_fill_gradientn(colours = myPalette(100), limits=c(0, 1.82)) +
+  labs(title = "Land Use diversity\nCensus Tract Level", fill='Land use\ndiversity index') + coord_map() + my.map.theme 
+
+
+
+#A map of Boston's built environment value dispersion, by neighborhood
+
+map3<- ggplot() + geom_polygon(aes(x=long, y=lat, group=id, fill=BUILT_ENV_DISP),
+                        data=neighborhoods_geo) + 
+  geom_path(aes(x=long, y=lat, group=group), color = 'gray', data=neighborhoods_geo) +
+  scale_fill_gradientn(colours = myPalette(100), limits=c(0.2, 1.72)) +
+  labs(title = "Assessed Value Dispersion\nNeighborhood Level", fill='Assessed value\ndispersion index') + coord_map() + my.map.theme 
+
+
+#A map of Boston's built environment value dispersion, by census tract (the parcel representing an outlier is removed)
+
+map4 <- ggplot() + geom_polygon(aes(x=long, y=lat, group=id, fill=BUILT_ENV_DISP),
+                        data=filter(tracts_geo, id != "25025981502")) + 
+  geom_path(aes(x=long, y=lat, group=group), color = 'gray', data=neighborhoods_geo) +
+  scale_fill_gradientn(colours = myPalette(100), limits=c(0, 2.6)) +
+  labs(title = "Boston: Assessed Value Dispersion\nCensus Tract Level", fill='Assessed value\ndispersion index') + coord_map() + my.map.theme 
+
+
+```
+
+
+```{r eval=FALSE, echo=FALSE}
+
+library(Rmisc)
+
+png(file = 'c:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/Boston-Tax-Assesor-Dataset-2015/Assignments/Midterm 2/1.png', width = 1200)
+
+multiplot(hist1, map1, cols = 2)
+
+dev.off()
+
+png(file = 'c:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/Boston-Tax-Assesor-Dataset-2015/Assignments/Midterm 2/2.png', width = 1200)
+
+multiplot(hist2, map2, cols = 2)
+
+dev.off()
+
+png(file = 'c:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/Boston-Tax-Assesor-Dataset-2015/Assignments/Midterm 2/3.png', width = 1200)
+
+multiplot(hist3, map3, cols = 2)
+
+dev.off()
+
+png(file = 'c:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/Boston-Tax-Assesor-Dataset-2015/Assignments/Midterm 2/4.png', width = 1200)
+
+multiplot(hist4, map4, cols = 2)
+
+dev.off()
+
+
+```
+
+

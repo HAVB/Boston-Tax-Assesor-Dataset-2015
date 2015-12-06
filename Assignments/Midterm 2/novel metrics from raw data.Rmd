@@ -254,7 +254,7 @@ neighborhoods_geo <- readOGR(dsn = 'C:/Users/havb/Dropbox/MSUI/Big Data for Citi
 
 neighborhoods_geo <- fortify(neighborhoods_geo, region = "BRA_PD")
 
-neighborhoods_geo <- merge(neighborhoods_geo, nb.lu.index, by.x = 'id', by.y = 'BRA_PD', all.x = TRUE)
+neighborhoods_geo <- merge(neighborhoods_geo,mf.vs.condo, by.x = 'id', by.y = 'BRA_PD', all.x = TRUE)
 
 neighborhoods_geo <- merge(neighborhoods_geo, nb.av.dispersion, by.x = 'id', by.y = 'BRA_PD', all.x = TRUE)
 

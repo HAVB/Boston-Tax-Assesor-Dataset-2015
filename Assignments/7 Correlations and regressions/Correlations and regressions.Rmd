@@ -1,0 +1,108 @@
+---
+title: "Correlations & Regressions"
+author: "Antonio Vazquez Brust"
+date: "November 17, 2015"
+output: html_document
+---
+
+```{r}
+options(scipen = 99)
+```
+
+```{r message=FALSE}
+TAdata <- read.csv('c:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/data/Tax Assessor/TAdata.csv')
+
+require(dplyr)
+
+```
+
+This week, I would like to compare the spatial distribution of building value in Boston against the classical concentric zone model developed in the University of Chicago in the '20s.
+
+The concentric zone model explains the demand (and hence, value) of land as a function of its closeness to the city's center, or central business district.
+
+![](https://upload.wikimedia.org/wikipedia/commons/thumb/6/62/Bid_rent1.svg/360px-Bid_rent1.svg.png)
+
+> from https://en.wikipedia.org/wiki/Concentric_zone_model
+
+This model, while nowadays considered outdated and too simplistic, is a good starting point for our analysis of building value distribution.
+
+Having categorized the building of Boston in a 1 to 100 "value ranking", we can check if there's a correlation between the value ranking and the distance to the city's center. We also have a variable that measures the distance between every parcel in our dataset and Boston Common, so that will be our central point. 
+
+
+First, let's see if there's a correlation between distance to the Common and building value ranking:
+
+```{r message=FALSE}
+require(Hmisc)
+
+rcorr(as.matrix(TAdata[c("BLDG_RANK","DIST_TO_DX_MI")]))
+
+```
+
+There's a significant negative correlation; the higher the distance from the Common, the lower the value ranking. Let's run a regression analysis to see how helpful this correlation is to predict value ranking:
+
+```{r}
+regression.bldg.rank <- lm(data = TAdata, BLDG_RANK ~ DIST_TO_DX_MI)
+summary(regression.bldg.rank)
+```
+
+It definitely is! The resulting p-value of 0.00000000000000022 indicates that such a correlation of value vs distance from the common, has less than a chance in a trillion to be explained by pure chance. The adjusted $R^2$ value of 0.2995 means than we can explain almost 30% of the variation in building ranking by its distance to the center alone.
+
+This is how the correlation between distance and value looks when plotted:
+
+```{r warning=FALSE}
+ggplot(data = TAdata, aes(x = DIST_TO_DX_MI, y = BLDG_RANK)) +  geom_point() + stat_smooth(method = "lm", formula = y ~ x, size = 1)
+```
+
+The plot is interesting, because we can see that there something going on with distance that is not linear: buildings with really low value rankings are frequent at mid-distance from the center, but start to decrease as distance increases. This looks more like a quadratic (ie "curved" correlation). Let's repeat our plot, this time fitting a quadratic regression line:
+
+```{r warning=FALSE}
+ggplot(data = TAdata, aes(x = DIST_TO_DX_MI, y = BLDG_RANK)) +  geom_point() + stat_smooth(method = "lm", formula = y ~ x + I(x^2), size = 1)
+```
+
+The fit now looks better, but is it significant? Let's re run our linear model, this time using a quadratic formula:
+
+```{r}
+regression.bldg.rank <- lm(data = TAdata, BLDG_RANK ~ DIST_TO_DX_MI+I(DIST_TO_DX_MI^2))
+summary(regression.bldg.rank)
+```
+
+Well, that was an improvement. The model statistical significance is still huge, and our new adjusted $R^2$ value indicates that we can explain more than 37% of a building value ranking by it's distance alone! For such a simplistic model, the concentric zone model sure packs a punch.
+
+The temptation of continuing to pick the low hanging fruit when it comes to explaining Boston property value is irresistible. Can we improve or predictive model even more if we add the percentage of minority population in the building's area as a variable?
+
+First, we'll load demographic information from the 2010 US Census, that contains the proportion of white population for each tract. We will merge that information with our dataset, and create a new column with the minority population percentage. Our definition for minority population is the proportion of non-white inhabitants in the tract where each parcel in our dataset is located.
+
+```{r}
+demographics <- read.csv('C:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/data/Census/Tract Census Data.csv', stringsAsFactors = FALSE)
+
+TAdata.plus.minority <- merge(TAdata, demographics[,c("CT_ID_10","propwhite")], by = "CT_ID_10", all.x = TRUE)
+
+TAdata.plus.minority$propmin <- (1 - TAdata.plus.minority$propwhite)
+
+```
+
+How does the relationship between minority population and building value look?
+
+```{r warning=FALSE, message=FALSE}
+
+library(RColorBrewer)
+colramp <- colorRampPalette(rev(brewer.pal(11,'Spectral')))
+
+ggplot(data = TAdata.plus.minority, aes(x = propmin, y = BLDG_RANK)) + stat_density2d(aes(fill=..density..), geom="tile", contour=FALSE) + scale_fill_gradient(low = "blue", high = "red")
+```
+
+It looks like a substantive correlation; a noticeable concentration appears in the lower left corner, which represents buildings with the lowest value and census tracts with a population entirely composed of minorities.
+
+Let's run an expanded linear model adding the minority proportion variable:
+
+```{r}
+regression.bldg.rank <- lm(data = TAdata.plus.minority, 
+                           BLDG_RANK ~ DIST_TO_DX_MI + I(DIST_TO_DX_MI^2) + propmin)
+summary(regression.bldg.rank)
+
+```
+
+Just by adding the percentage of non-white population into our model, its predictive capacity jumped from 37 to more than 50%. 
+
+Next step: looking for non-obvious predictors.
+
