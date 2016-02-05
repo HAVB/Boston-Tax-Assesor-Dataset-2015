@@ -8,7 +8,7 @@ output: html_document
 options(scipen = 99) # this prevents R from using scientific notation to display large numbers
 
 library(ggplot2)
-TAdata <- read.csv('C:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/data/Tax Assessor/Tax Assessor 2015 - Data.csv', stringsAsFactors = FALSE) #load the Tax Assesor dataset
+TAdata <- read.csv('C:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/Boston-Tax-Assesor-Dataset-2015/data/Tax Assessor 2015 - Data.csv', stringsAsFactors = FALSE) #load the Tax Assesor dataset
 
 TAdata <- transform(TAdata, AV_LAND_PER_SF = ifelse((AV_LAND != 0 & LAND_SF != 0), AV_LAND / LAND_SF, NA))
 
@@ -94,7 +94,7 @@ summary(built.environment.diversity$BUILT_ENV_DIV)
 Now we load census data that includes ethnic diversity information -or "ethnic heterogeneity", column EthHet), to merge it with our built environment diversity dataset:
 
 ```{r}
-demographics <- read.csv('C:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/data/Census/Tract Census Data.csv', stringsAsFactors = FALSE)
+demographics <- read.csv('C:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/Census/Tract Census Data.csv', stringsAsFactors = FALSE)
 
 summary(demographics$EthHet)
 
@@ -154,4 +154,3 @@ base + geom_polygon(aes(x=long, y=lat, group=group, fill=EthHet),
 ```
 
 What we are comparing with the last two maps is, in a sense, ethnic diversity versus diversity in purchasing power. It's hard to visualize a clear pattern; conclusions will have to wait until we can refine our analysis.
-

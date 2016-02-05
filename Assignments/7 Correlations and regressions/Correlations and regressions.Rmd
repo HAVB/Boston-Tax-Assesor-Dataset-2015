@@ -75,9 +75,9 @@ First, we'll load demographic information from the 2010 US Census, that contains
 ```{r}
 demographics <- read.csv('C:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/data/Census/Tract Census Data.csv', stringsAsFactors = FALSE)
 
-TAdata.plus.minority <- merge(TAdata, demographics[,c("CT_ID_10","propwhite")], by = "CT_ID_10", all.x = TRUE)
+TAdata.plus.dem<- merge(TAdata, demographics[,c("CT_ID_10","propwhite", "GINI", "EthHet", "propimmigrant", "medincome")], by = "CT_ID_10", all.x = TRUE)
 
-TAdata.plus.minority$propmin <- (1 - TAdata.plus.minority$propwhite)
+TAdata.plus.dem$propmin <- (1 - TAdata.plus.minority$propwhite)
 
 ```
 
@@ -88,7 +88,10 @@ How does the relationship between minority population and building value look?
 library(RColorBrewer)
 colramp <- colorRampPalette(rev(brewer.pal(11,'Spectral')))
 
-ggplot(data = TAdata.plus.minority, aes(x = propmin, y = BLDG_RANK)) + stat_density2d(aes(fill=..density..), geom="tile", contour=FALSE) + scale_fill_gradient(low = "blue", high = "red")
+ggplot(data = filter(TAdata.plus.dem, HOME ==1), aes(x = propmin, y = BLDG_RANK)) + stat_density2d(aes(fill=..density..), geom="tile", contour=FALSE) + scale_fill_gradient(low = "grey", high = "yellow")
+
+ggplot(data = filter(TAdata.plus.dem, HOME ==1), aes(x = propmin, y = AV_BLDG_PER_SF)) + scale_y_log10() stat_density2d(aes(fill=..density..), geom="tile", contour=FALSE) + scale_fill_gradient(low = "blue", high = "red")
+
 ```
 
 It looks like a substantive correlation; a noticeable concentration appears in the lower left corner, which represents buildings with the lowest value and census tracts with a population entirely composed of minorities.
@@ -96,7 +99,7 @@ It looks like a substantive correlation; a noticeable concentration appears in t
 Let's run an expanded linear model adding the minority proportion variable:
 
 ```{r}
-regression.bldg.rank <- lm(data = TAdata.plus.minority, 
+regression.bldg.rank <- lm(data = filter(TAdata.plus.dem, HOME ==1), 
                            BLDG_RANK ~ DIST_TO_DX_MI + I(DIST_TO_DX_MI^2) + propmin)
 summary(regression.bldg.rank)
 

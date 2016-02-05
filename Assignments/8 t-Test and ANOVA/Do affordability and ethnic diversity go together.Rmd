@@ -13,9 +13,9 @@ __"Do areas with different building value dispersions exhibit different levels o
 To begin, we'll load Tax Assessor's and Census data:
 
 ```{r cache=TRUE, message=FALSE}
-TAdata <- read.csv("C:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/data/Tax Assessor/TAdata.csv")
+  TAdata <- read.csv("/home/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/data/Tax Assessor/TAdata.csv")
 
-demographics <- read.csv("C:/Users/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/data/Census/Tract Census Data.csv")
+demographics <- read.csv("/home/havb/Dropbox/MSUI/Big Data for Cities - PPUA 5262 - 01/R/data/Census/Tract Census Data.csv")
 
 ```
 
